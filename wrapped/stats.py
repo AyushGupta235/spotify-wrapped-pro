@@ -20,18 +20,35 @@ def artist_diversity(df: pd.DataFrame) -> Optional[float]:
 
 
 def listening_sessions(df: pd.DataFrame, gap_minutes: int = 30) -> pd.DataFrame:
-    """Cluster plays into sessions separated by silence of gap_minutes."""
+    """Cluster plays into sessions separated by silence of gap_minutes.
+
+    When ms_played is available (extended history), session duration is computed
+    from actual play time. Otherwise, falls back to timestamp difference.
+    """
     if df.empty or "played_at_ms" not in df.columns:
         return pd.DataFrame()
     d = df.sort_values("played_at_ms").copy()
     d["gap"] = d["played_at_ms"].diff().fillna(0)
     d["session_id"] = (d["gap"] > gap_minutes * 60 * 1000).cumsum()
-    sessions = d.groupby("session_id").agg(
-        start=("played_at_ms", "min"),
-        end=("played_at_ms", "max"),
-        play_count=("track_id", "count"),
-    )
-    sessions["duration_min"] = ((sessions["end"] - sessions["start"]) / 60_000).round(1)
+
+    has_ms = "ms_played" in d.columns and d["ms_played"].notna().any()
+
+    if has_ms:
+        sessions = d.groupby("session_id").agg(
+            start=("played_at_ms", "min"),
+            end=("played_at_ms", "max"),
+            play_count=("track_id", "count"),
+            total_ms=("ms_played", "sum"),
+        )
+        sessions["duration_min"] = (sessions["total_ms"] / 60_000).round(1)
+    else:
+        sessions = d.groupby("session_id").agg(
+            start=("played_at_ms", "min"),
+            end=("played_at_ms", "max"),
+            play_count=("track_id", "count"),
+        )
+        sessions["duration_min"] = ((sessions["end"] - sessions["start"]) / 60_000).round(1)
+
     sessions["start_dt"] = pd.to_datetime(sessions["start"], unit="ms", utc=True)
     return sessions.sort_values("duration_min", ascending=False).reset_index(drop=True)
 

@@ -162,12 +162,26 @@ def snapshot_history(
 
 
 def plays_raw(conn: sqlite3.Connection, period: str = "all") -> pd.DataFrame:
-    """Full play rows joined with track/artist metadata. Used by stats.py."""
+    """Full play rows joined with track/artist metadata. Used by stats.py.
+
+    Includes ms_played, reason_end, shuffle, skipped, platform, source — populated
+    when rows come from the extended history import, NULL when from recently-played.
+    """
     since = _since_ms(period)
     where = f"WHERE p.played_at_ms >= {since}" if since else ""
     sql = f"""
         SELECT p.played_at_ms,
                p.track_id,
+               p.ms_played,
+               p.reason_start,
+               p.reason_end,
+               p.shuffle,
+               p.skipped,
+               p.offline,
+               p.incognito_mode,
+               p.platform,
+               p.conn_country,
+               p.source,
                t.name          AS track_name,
                t.duration_ms,
                t.release_date,
@@ -177,10 +191,10 @@ def plays_raw(conn: sqlite3.Connection, period: str = "all") -> pd.DataFrame:
                a.genres_json,
                al.name         AS album_name
         FROM plays p
-        LEFT JOIN tracks      t  ON p.track_id   = t.id
-        LEFT JOIN track_artists ta ON p.track_id = ta.track_id AND ta.position = 0
-        LEFT JOIN artists     a  ON ta.artist_id = a.id
-        LEFT JOIN albums      al ON t.album_id   = al.id
+        LEFT JOIN tracks        t  ON p.track_id  = t.id
+        LEFT JOIN track_artists ta ON p.track_id  = ta.track_id AND ta.position = 0
+        LEFT JOIN artists       a  ON ta.artist_id = a.id
+        LEFT JOIN albums        al ON t.album_id   = al.id
         {where}
         ORDER BY p.played_at_ms
     """
@@ -188,6 +202,53 @@ def plays_raw(conn: sqlite3.Connection, period: str = "all") -> pd.DataFrame:
     if not df.empty:
         df["played_at"] = pd.to_datetime(df["played_at_ms"], unit="ms", utc=True)
     return df
+
+
+def has_ms_played(conn: sqlite3.Connection) -> bool:
+    """True if the DB has any rows with ms_played populated (i.e. extended history imported)."""
+    count = conn.execute("SELECT COUNT(*) FROM plays WHERE ms_played IS NOT NULL").fetchone()[0]
+    return count > 0
+
+
+def skip_rate(conn: sqlite3.Connection, period: str = "30d") -> Optional[float]:
+    """% of plays where the track was skipped before 50% completion.
+    Only meaningful when ms_played data is available (extended history).
+    Returns None if ms_played data is absent.
+    """
+    if not has_ms_played(conn):
+        return None
+    since = _since_ms(period)
+    where = f"AND p.played_at_ms >= {since}" if since else ""
+    sql = f"""
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE
+                WHEN t.duration_ms IS NOT NULL
+                 AND p.ms_played < t.duration_ms * 0.5
+                THEN 1 ELSE 0
+            END) AS skipped_count
+        FROM plays p
+        JOIN tracks t ON p.track_id = t.id
+        WHERE p.ms_played IS NOT NULL {where}
+    """
+    row = conn.execute(sql).fetchone()
+    if not row or row[0] == 0:
+        return None
+    return round(row[1] / row[0] * 100, 1)
+
+
+def listening_time_hours(conn: sqlite3.Connection, period: str = "30d") -> Optional[float]:
+    """Total hours of audio actually played (requires ms_played from extended history)."""
+    if not has_ms_played(conn):
+        return None
+    since = _since_ms(period)
+    where = f"AND played_at_ms >= {since}" if since else ""
+    row = conn.execute(
+        f"SELECT SUM(ms_played) FROM plays WHERE ms_played IS NOT NULL {where}"
+    ).fetchone()
+    if not row or row[0] is None:
+        return None
+    return round(row[0] / 3_600_000, 1)
 
 
 def total_plays(conn: sqlite3.Connection) -> int:

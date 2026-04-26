@@ -1,4 +1,12 @@
-"""Poll /me/player/recently-played and upsert into the plays table."""
+"""Poll /me/player/recently-played and upsert into the plays table.
+
+Fields populated from this source:
+  played_at_ms, track_id, context_type, context_uri, source='recent'
+
+Fields intentionally left NULL (not available from the API):
+  ms_played, reason_start, reason_end, shuffle, skipped,
+  offline, incognito_mode, platform, conn_country
+"""
 import logging
 from datetime import datetime, timezone
 
@@ -39,8 +47,9 @@ def run() -> int:
                 continue
             context = item.get("context") or {}
             conn.execute(
-                "INSERT OR IGNORE INTO plays(played_at_ms, track_id, context_type, context_uri)"
-                " VALUES (?,?,?,?)",
+                """INSERT OR IGNORE INTO plays
+                   (played_at_ms, track_id, context_type, context_uri, source)
+                   VALUES (?, ?, ?, ?, 'recent')""",
                 (played_at_ms, track_id, context.get("type"), context.get("uri")),
             )
             if played_at_ms > latest_ms:
@@ -56,7 +65,8 @@ def run() -> int:
 
     if latest_ms:
         conn.execute(
-            "INSERT OR REPLACE INTO ingest_state(key, value) VALUES ('last_recent_cursor', ?)",
+            "INSERT OR REPLACE INTO ingest_state(key, value)"
+            " VALUES ('last_recent_cursor', ?)",
             (str(latest_ms),),
         )
         conn.commit()

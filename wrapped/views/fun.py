@@ -1,7 +1,7 @@
 import altair as alt
 import streamlit as st
 
-from wrapped.queries import plays_raw, total_plays
+from wrapped.queries import listening_time_hours, plays_raw, skip_rate, total_plays
 from wrapped.stats import (
     artist_diversity,
     decade_distribution,
@@ -28,8 +28,10 @@ def render(conn, period: str) -> None:
     obscurity = obscurity_score(raw_df)
     diversity = artist_diversity(raw_df)
     session = longest_session(raw_df)
-    repeated = most_repeated_track_in_day(raw_df)
+    hours = listening_time_hours(conn, period)
+    skip_pct = skip_rate(conn, period)
 
+    # First row
     cols = st.columns(4)
     cols[0].metric(
         "Total Plays (all time)",
@@ -54,6 +56,22 @@ def render(conn, period: str) -> None:
         )
     else:
         cols[3].metric("Longest Session", "—")
+
+    # Second row — only shown when ms_played data is available (extended history)
+    if hours is not None or skip_pct is not None:
+        cols2 = st.columns(4)
+        if hours is not None:
+            cols2[0].metric(
+                "Listening Time",
+                f"{hours:,.1f} hrs",
+                help="Actual audio played (from extended history ms_played)",
+            )
+        if skip_pct is not None:
+            cols2[1].metric(
+                "Skip Rate",
+                f"{skip_pct:.1f}%",
+                help="% of tracks abandoned before 50% of their duration",
+            )
 
     st.divider()
 

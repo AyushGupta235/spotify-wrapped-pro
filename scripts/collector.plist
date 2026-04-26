@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd job: pulls your Spotify listening history every 6 hours.
+
+  INSTALL:
+    make collector-install
+
+  UNINSTALL:
+    make collector-uninstall
+
+  LOGS:
+    tail -f /tmp/spotify-wrapped-collector.log
+    tail -f /tmp/spotify-wrapped-collector.err
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.spotify-wrapped.collector</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>VENV_PYTHON</string>
+        <string>-m</string>
+        <string>scripts.ingest</string>
+        <string>all</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>PROJECT_DIR</string>
+
+    <!-- Every 6 hours (21600 seconds) -->
+    <key>StartInterval</key>
+    <integer>21600</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/spotify-wrapped-collector.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/tmp/spotify-wrapped-collector.err</string>
+
+    <!-- Restart on crash -->
+    <key>KeepAlive</key>
+    <false/>
+
+    <!-- Run even on battery -->
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
